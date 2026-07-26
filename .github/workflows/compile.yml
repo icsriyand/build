@@ -43,10 +43,11 @@ jobs:
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5 libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool xsltproc zip zlib1g-dev python2 libc6:i386 libncurses5:i386 libstdc++6:i386 cpio
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: 5. Download Toolchain (Google Official Source)
+    - name: 5. Download Toolchain (Google Official Repo Locked Branch)
       run: |
-        # Menggunakan perintah kloning murni dari Google Source pilihan Anda
-        git clone https://googlesource.com toolchain
+        # Menggunakan perintah git clone murni pilihan Anda dengan mengunci cabang 'pie-gsi' 
+        # Cabang ini adalah tempat terakhir Google menyimpan biner GCC 4.9 secara utuh sebelum dihapus dari cabang main
+        git clone -b pie-gsi --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain
 
     - name: 6. Download Android Image Kitchen (AIK Ndrancs Reference)
       run: |
@@ -79,19 +80,9 @@ jobs:
 
     - name: 8. Compile Kernel Source
       run: |
-        # Logika Pencarian Otomatis: Menemukan lokasi pasti biner arm-linux-androideabi-gcc di folder toolchain
-        REAL_GCC_PATH=$(find $GITHUB_WORKSPACE/toolchain -name "arm-linux-androideabi-gcc" | head -n 1)
-        if [ -z "$REAL_GCC_PATH" ]; then
-          echo "Error: File arm-linux-androideabi-gcc benar-benar tidak ditemukan di folder toolchain!"
-          exit 1
-        fi
-        
-        # Potong nama file untuk mendapatkan awalan CROSS_COMPILE yang valid (misal: .../bin/arm-linux-androideabi-)
-        TOOLCHAIN_PREFIX=${REAL_GCC_PATH%gcc}
-        echo "Menggunakan Toolchain Prefix: $TOOLCHAIN_PREFIX"
-        
         cd kernel-source
-        export CROSS_COMPILE=$TOOLCHAIN_PREFIX
+        # Mengarahkan langsung ke jalur eksekusi biner arm-linux-androideabi-gcc yang sudah terunduh di folder toolchain
+        export CROSS_COMPILE=$GITHUB_WORKSPACE/toolchain/bin/arm-linux-androideabi-
         export ARCH=arm
         export SUBARCH=arm
         export KBUILD_BUILD_USER="Icsriyand"
