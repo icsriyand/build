@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-and-patch:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout Your Repository (Contains Target boot.img)
@@ -30,7 +30,7 @@ jobs:
     - name: Install Build Dependencies & Utilities
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev bison flex libelf-dev acpica-tools tools-common crossbuild-essential-armhf clearview-utils cpio
+        sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev bison flex libelf-dev acpica-tools crossbuild-essential-armhf cpio libncurses-dev
 
     - name: Download Toolchain (GCC 4.9 Standard)
       run: |
@@ -43,10 +43,10 @@ jobs:
 
     - name: Porting Config and DTS to LineageOS 14.1 Kernel
       run: |
-        # Menyalin j1acevelte_defconfig yang sudah Anda pastikan ke tempatnya
+        # Menyalin j1acevelte_defconfig bawaan pabrik ke kernel CM-14.1
         cp stock_ref/arch/arm/configs/j1acevelte_defconfig kernel/arch/arm/configs/
         
-        # Menyalin file DTS/DTSI spesifik J111F ke kernel CM-14.1 agar hardware terdeteksi
+        # Menyalin file konfigurasi DTS/DTSI spesifik J111F ke kernel CM-14.1
         cp stock_ref/arch/arm/boot/dts/j1acevelte* kernel/arch/arm/boot/dts/ || true
         cp stock_ref/arch/arm/boot/dts/sc9830* kernel/arch/arm/boot/dts/ || true
 
@@ -59,13 +59,13 @@ jobs:
         make clean
         make j1acevelte_defconfig
         
-        # Menjalankan proses kompilasi zImage
+        # Memulai proses kompilasi kode zImage
         make -j$(nproc)
 
     - name: Combine Kernel with Device Tree Blob (DTB)
       run: |
         cd kernel
-        # Menggabungkan berkas zImage dengan komponen DTB spesifik J111F (Metode Wajib Spreadtrum)
+        # Menggabungkan komponen zImage dengan DTB spesifik J111F (Standard Device Tree Spreadtrum)
         if [ -f arch/arm/boot/dts/j1acevelte.dtb ]; then
           cat arch/arm/boot/zImage arch/arm/boot/dts/j1acevelte.dtb > arch/arm/boot/zImage-dtb
         else
@@ -74,9 +74,9 @@ jobs:
 
     - name: Unpack, Replace Kernel, and Repack Boot.img
       run: |
-        # Memastikan file boot.img target Anda terbaca dari repositori icsriyand/build
+        # Memastikan file boot.img target orisinal ada di repositori Anda
         if [ ! -f main_repo/boot.img ]; then
-          echo "Error: Berkas boot.img target tidak ditemukan di root repositori Anda!"
+          echo "Error: Berkas boot.img tidak ditemukan di root repositori Anda!"
           exit 1
         fi
         
@@ -84,13 +84,13 @@ jobs:
         cp main_repo/boot.img AIK/
         cd AIK
         
-        # Proses pembongkaran boot.img target
+        # Proses pembongkaran boot.img target secara otomatis
         ./unpackimg.sh boot.img
         
-        # Mengganti kernel lama dengan kernel kustom zImage-dtb baru hasil kompilasi
+        # Menyisipkan berkas zImage-dtb hasil kompilasi baru ke dalam ramdisk
         cp ../kernel/arch/arm/boot/zImage-dtb split_img/boot.img-zImage
         
-        # Proses pengemasan ulang menjadi boot.img modifikasi
+        # Mengemas kembali menjadi boot.img kustom siap pakai
         ./repackimg.sh
         
         # Memindahkan file keluaran ke direktori utama
