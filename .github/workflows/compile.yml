@@ -1,107 +1,135 @@
-name: Compile Kernel & Build Boot.img SM-J111F (Auto-Config)
+name: Build Boot.img LineageOS 14.1 (SM-J111F)
 
 on:
-  workflow_dispatch: # Dapat dijalankan manual lewat menu Actions di GitHub
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - main
+
+permissions:
+  contents: write
+
+env:
+  ARCH: arm
+  SUBARCH: arm
 
 jobs:
   build:
-    runs-runs-on: ubuntu-20.04
+    name: Create LineageOS 14.1 Boot Image
+    runs-on: ubuntu-22.04
 
     steps:
-    - name: Mengatur Dependensi Sistem
+    - name: 1. Install Dependencies
       run: |
+        sudo dpkg --add-architecture i386
         sudo apt-get update
-        sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev bison flex libpcap-dev zip unzip
-        sudo apt-get install -y gcc-multilib g++-multilib libc6-dev-i386
+        sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5 libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool xsltproc zip zlib1g-dev python2 libc6:i386 libncurses5:i386 libstdc++6:i386 file
+        sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: Clone Toolchain GCC 4.9
+    - name: 2. Clone LineageOS 14.1 Kernel Source
       run: |
-        git clone https://googlesource.com -b master --depth=1 $GITHUB_WORKSPACE/toolchain
+        git clone --depth=1 -b cm-14.1 https://github.com/djeman/android_kernel_samsung_sharkls kernel-source
 
-    - name: Clone Kernel LineageOS 14.1
+    - name: 3. Clone Stock Kernel Source (Untuk Ambil Defconfig)
       run: |
-        git clone https://github.com/djeman/android_kernel_samsung_sharkls -b cm-14.1 --depth=1 $GITHUB_WORKSPACE/kernel
+        git clone --depth=1 https://github.com/Flopster101/android_kernel_samsung_j1acevelte stock-kernel
 
-    - name: Clone Kernel Stock (Sumber Defconfig J1 Ace)
+    - name: 4. Clone Toolchain GCC 4.9
       run: |
-        git clone https://github.com --depth=1 $GITHUB_WORKSPACE/stock_kernel
+        git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain
 
-    - name: Deteksi Otomatis, Salin, dan Sinkronisasi Defconfig
+    - name: 5. Clone Base Repo (Untuk Ambil Boot.img Lama & AIK)
       run: |
-        # Cari file defconfig di repositori stock yang mengandung kata j1ace, j1, atau sharkls
-        cd $GITHUB_WORKSPACE/stock_kernel/arch/arm/configs/
+        git clone https://github.com/icsriyand/build base-repo
+        git clone https://github.com/ndrancs/AIK-Linux-x32-x64 AIK
+
+    - name: 6. Deteksi dan Salin Defconfig Otomatis
+      run: |
+        # Mencari file defconfig J1 Ace di stock kernel
+        STOCK_DEFCONFIG=$(find stock-kernel/arch/arm/configs/ -name "*j1acevelte*_defconfig" -maxdepth 1 | head -n 1)
         
-        FOUND_CONFIG=$(ls *defconfig* | grep -E "j1ace|j1|sharkls" | head -n 1)
-        
-        if [ -z "$FOUND_CONFIG" ]; then
-          echo "Defconfig spesifik tidak ditemukan di repositori stock, mencari defconfig alternatif..."
-          FOUND_CONFIG=$(ls *defconfig* | head -n 1)
+        if [ -z "$STOCK_DEFCONFIG" ]; then
+          echo "Defconfig tidak ditemukan di stock-kernel! Menggunakan fallback."
+          STOCK_DEFCONFIG="stock-kernel/arch/arm/configs/j1acevelte_defconfig"
         fi
         
-        echo "Defconfig yang terdeteksi: $FOUND_CONFIG"
+        DEFCONFIG_NAME=$(basename $STOCK_DEFCONFIG)
+        echo "DEFCONFIG_NAME=$DEFCONFIG_NAME" >> $GITHUB_ENV
         
-        # Salin defconfig dari stock ke kernel LineageOS dengan nama target otomatis
-        cp "$FOUND_CONFIG" "$GITHUB_WORKSPACE/kernel/arch/arm/configs/lineage_j1ace_auto_defconfig"
-        echo "Defconfig berhasil disalin ke LineageOS dengan nama: lineage_j1ace_auto_defconfig"
+        # Menyalin defconfig dari stock ke kernel LineageOS
+        cp -v $STOCK_DEFCONFIG kernel-source/arch/arm/configs/
+        echo "Berhasil menyalin $DEFCONFIG_NAME ke kernel-source."
 
-    - name: Download boot.img LineageOS 14.1 Anda
+    - name: 7. Auto-Patch Kernel Source
       run: |
-        mkdir -p $GITHUB_WORKSPACE/workdir
-        # Mendownload boot.img asli dari repositori build Anda
-        curl -L "https://github.com" -o $GITHUB_WORKSPACE/workdir/boot.img || \
-        curl -L "https://github.com" -o $GITHUB_WORKSPACE/workdir/boot.img
+        cd kernel-source
+        # Perbaikan error kompilasi gcc kuno di Ubuntu modern
+        if [ -f kernel/timeconst.pl ]; then sed -i 's/if (!defined(@val))/if (!@val)/g' kernel/timeconst.pl; fi
+        if [ -f scripts/dtc/dtc-lexer.lex.c_shipped ]; then sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped; fi
+        find . -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
+        find . -type f -name "Makefile" -exec sed -i 's/-implicit-function-declaration/-Wno-implicit-function-declaration/g' {} +
+        
+        # Inject Status Permissive & Matikan Proteksi Samsung Knox
+        echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> arch/arm/configs/$DEFCONFIG_NAME
+        echo "CONFIG_SECURITY_SELINUX_AVC_STATS=y" >> arch/arm/configs/$DEFCONFIG_NAME
+        sed -i 's/CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=n/CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=y/g' arch/arm/configs/$DEFCONFIG_NAME || echo "CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=y" >> arch/arm/configs/$DEFCONFIG_NAME
+        sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' arch/arm/configs/$DEFCONFIG_NAME
+        sed -i 's/CONFIG_SEC_RESTRICT_ROOT=y/# CONFIG_SEC_RESTRICT_ROOT is not set/g' arch/arm/configs/$DEFCONFIG_NAME
+        sed -i 's/CONFIG_KNOX_KAP=y/# CONFIG_KNOX_KAP is not set/g' arch/arm/configs/$DEFCONFIG_NAME
 
-    - name: Clone Android Image Kitchen (AIK)
+    - name: 8. Kompilasi Kernel (ZImage)
       run: |
-        git clone https://github.com $GITHUB_WORKSPACE/AIK
-        cd $GITHUB_WORKSPACE/AIK
-        chmod +x unpackimg.sh repackimg.sh bin/magic
-
-    - name: Proses Kompilasi Kernel
-      run: |
-        export PATH="$GITHUB_WORKSPACE/toolchain/bin:$PATH"
+        cd kernel-source
+        export CROSS_COMPILE=$GITHUB_WORKSPACE/toolchain/bin/arm-linux-androideabi-
         export ARCH=arm
-        export CROSS_COMPILE=arm-linux-androideabi-
+        export SUBARCH=arm
+        export KBUILD_BUILD_USER="Icsriyand"
+        export KBUILD_BUILD_HOST="GitHub-Actions"
         
-        cd $GITHUB_WORKSPACE/kernel
-        
-        # Menggunakan defconfig otomatis yang telah disalin sebelumnya
-        make lineage_j1ace_auto_defconfig
-        
-        # Eksekusi kompilasi multi-core
+        make $DEFCONFIG_NAME
         make -j$(nproc)
 
-    - name: Bongkar boot.img & Ganti Kernel (zImage)
+    - name: 9. Repack Boot.img Menggunakan AIK
       run: |
-        cd $GITHUB_WORKSPACE/AIK
+        # Cari boot.img asli di dalam repositori build Anda
+        OLD_BOOT=$(find base-repo -name "boot.img" | head -n 1)
         
-        # Salin boot.img ke direktori kerja AIK
-        cp $GITHUB_WORKSPACE/workdir/boot.img .
-        
-        # Bongkar paket boot.img
-        ./unpackimg.sh
-        
-        # Periksa format keluaran kernel (biasanya zImage atau zImage-dtb)
-        if [ -f "$GITHUB_WORKSPACE/kernel/arch/arm/boot/zImage-dtb" ]; then
-          cp $GITHUB_WORKSPACE/kernel/arch/arm/boot/zImage-dtb split_img/boot.img-zImage
-        else
-          cp $GITHUB_WORKSPACE/kernel/arch/arm/boot/zImage split_img/boot.img-zImage
+        if [ -z "$OLD_BOOT" ]; then
+          echo "Error: boot.img tidak ditemukan di repo https://github.com/icsriyand/build"
+          exit 1
         fi
         
-        # Kemas ulang image baru
+        # Salin boot.img lama ke folder AIK
+        cp -v $OLD_BOOT AIK/boot.img
+        cd AIK
+        
+        # Bongkar boot.img lama
+        chmod +x unpackimg.sh repackimg.sh bin/magiskboot bin/androidbootimg
+        ./unpackimg.sh boot.img
+        
+        # Ganti zImage bawaan lama dengan zImage LineageOS yang baru dicompile
+        if [ -f ../kernel-source/arch/arm/boot/zImage ]; then
+          cp -v ../kernel-source/arch/arm/boot/zImage split_img/boot.img-zImage
+        else
+          echo "Error: zImage baru tidak ditemukan!"
+          exit 1
+        fi
+        
+        # Rakit kembali menjadi boot.img baru
         ./repackimg.sh
         
-        # Amankan hasil modifikasi ke folder output
-        mv image-new.img $GITHUB_WORKSPACE/workdir/boot-lineage14.1-sm-j111f.img
+        # Pindahkan hasilnya ke workspace utama
+        cp -v image-new.img ../boot-lineage14.1-j1acevelte.img
 
-    - name: Membuat GitHub Release dan Unggah Hasil
-      uses: softprops/action-gh-release@v1
+    - name: 10. Upload Boot Image ke GitHub Release
+      uses: softprops/action-gh-release@v2
       with:
-        tag_name: Lineage-14.1-${{ github.run_number }}
-        name: Boot.img LineageOS 14.1 J1 Ace (Build ${{ github.run_number }})
-        draft: false
-        prerelease: false
-        files: |
-          workdir/boot-lineage14.1-sm-j111f.img
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        tag_name: LOS-14.1-Boot-${{ github.run_id }}
+        name: Boot Image LineageOS 14.1 SM-J111F
+        body: |
+          Hasil kompilasi boot.img otomatis untuk SM-J111F.
+          - Ramdisk: Diambil dari base ROM LineageOS 14.1 Anda.
+          - Kernel: Dicompile menggunakan source sharkls dengan defconfig ${{ env.DEFCONFIG_NAME }}.
+          - Status: Permissive & Knox Disabled.
+        files: boot-lineage14.1-j1acevelte.img
