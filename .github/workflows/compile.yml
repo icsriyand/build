@@ -1,0 +1,103 @@
+name: Compile & Patch LineageOS 14.1 Kernel for J111F
+
+on:
+  workflow_dispatch: # Memicu pengerjaan secara manual dari tab Actions di GitHub
+
+jobs:
+  build-and-patch:
+    runs-on: ubuntu-20.04
+
+    steps:
+    - name: Checkout Your Repository (Contains Target boot.img)
+      uses: actions/checkout@v3
+      with:
+        path: 'main_repo'
+
+    - name: Checkout LineageOS 14.1 Kernel Source
+      uses: actions/checkout@v3
+      with:
+        repository: 'djeman/android_kernel_samsung_sharkls'
+        ref: 'cm-14.1'
+        path: 'kernel'
+
+    - name: Checkout Stock 5.1.1 Kernel Source (For Driver/DTS References)
+      uses: actions/checkout@v3
+      with:
+        repository: 'Flopster101/android_kernel_samsung_j1acevelte'
+        ref: 'android-5.1.1'
+        path: 'stock_ref'
+
+    - name: Install Build Dependencies & Utilities
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc build-essential libncurses5-dev libssl-dev bison flex libelf-dev acpica-tools tools-common crossbuild-essential-armhf clearview-utils cpio
+
+    - name: Download Toolchain (GCC 4.9 Standard)
+      run: |
+        git clone https://googlesource.com toolchain --depth=1
+
+    - name: Download Android Image Kitchen (AIK) for Linux
+      run: |
+        git clone https://github.com AIK --depth=1
+        chmod -R +x AIK/*.sh AIK/bin/
+
+    - name: Porting Config and DTS to LineageOS 14.1 Kernel
+      run: |
+        # Menyalin j1acevelte_defconfig yang sudah Anda pastikan ke tempatnya
+        cp stock_ref/arch/arm/configs/j1acevelte_defconfig kernel/arch/arm/configs/
+        
+        # Menyalin file DTS/DTSI spesifik J111F ke kernel CM-14.1 agar hardware terdeteksi
+        cp stock_ref/arch/arm/boot/dts/j1acevelte* kernel/arch/arm/boot/dts/ || true
+        cp stock_ref/arch/arm/boot/dts/sc9830* kernel/arch/arm/boot/dts/ || true
+
+    - name: Compile Kernel
+      run: |
+        cd kernel
+        export ARCH=arm
+        export CROSS_COMPILE=$GITHUB_WORKSPACE/toolchain/bin/arm-linux-androideabi-
+        
+        make clean
+        make j1acevelte_defconfig
+        
+        # Menjalankan proses kompilasi zImage
+        make -j$(nproc)
+
+    - name: Combine Kernel with Device Tree Blob (DTB)
+      run: |
+        cd kernel
+        # Menggabungkan berkas zImage dengan komponen DTB spesifik J111F (Metode Wajib Spreadtrum)
+        if [ -f arch/arm/boot/dts/j1acevelte.dtb ]; then
+          cat arch/arm/boot/zImage arch/arm/boot/dts/j1acevelte.dtb > arch/arm/boot/zImage-dtb
+        else
+          cat arch/arm/boot/zImage arch/arm/boot/dts/sc9830*.dtb > arch/arm/boot/zImage-dtb || cp arch/arm/boot/zImage arch/arm/boot/zImage-dtb
+        fi
+
+    - name: Unpack, Replace Kernel, and Repack Boot.img
+      run: |
+        # Memastikan file boot.img target Anda terbaca dari repositori icsriyand/build
+        if [ ! -f main_repo/boot.img ]; then
+          echo "Error: Berkas boot.img target tidak ditemukan di root repositori Anda!"
+          exit 1
+        fi
+        
+        # Menyalin file boot.img Anda ke dalam lingkungan AIK
+        cp main_repo/boot.img AIK/
+        cd AIK
+        
+        # Proses pembongkaran boot.img target
+        ./unpackimg.sh boot.img
+        
+        # Mengganti kernel lama dengan kernel kustom zImage-dtb baru hasil kompilasi
+        cp ../kernel/arch/arm/boot/zImage-dtb split_img/boot.img-zImage
+        
+        # Proses pengemasan ulang menjadi boot.img modifikasi
+        ./repackimg.sh
+        
+        # Memindahkan file keluaran ke direktori utama
+        cp image-new.img ../boot_lineage14.1_j111f.img
+
+    - name: Upload Final Boot Image Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: J111F-CM14.1-CustomBoot
+        path: boot_lineage14.1_j111f.img
