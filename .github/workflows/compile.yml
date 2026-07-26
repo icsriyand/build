@@ -1,16 +1,10 @@
-name: Build Boot.img LineageOS 14.1 SM-J111F
+name: Build Boot.img LineageOS 14.1 (SM-J111F)
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: write
-
-env:
-  ARCH: arm
-  SUBARCH: arm
-  STOCK_DEFCONFIG: j1acevelte_defconfig
-  LOS_DEFCONFIG: j3xlte_permissive_defconfig
 
 jobs:
   build:
@@ -22,96 +16,92 @@ jobs:
       run: |
         sudo dpkg --add-architecture i386
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5 libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool xsltproc zip zlib1g-dev python2 libc6:i386 libncurses5:i386 libstdc++6:i386 libcrypto++-dev
+        sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5 libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool xsltproc zip zlib1g-dev python2 libc6:i386 libncurses5:i386 libstdc++6:i386 file bzip2 gzip p7zip-full
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: 2. Download Toolchain 4.9
+    - name: 2. Download Toolchain Google GCC 4.9
       run: |
         git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain
 
     - name: 3. Clone Kernel LineageOS 14.1
       run: |
-        git clone --depth=1 -b cm-14.1 https://github.com/djeman/android_kernel_samsung_sharkls kernel-source
+        git clone --depth=1 -b cm-14.1 https://github.com/djeman/android_kernel_samsung_sharkls kernel-los
 
-    - name: 4. Fetch Stock Defconfig SM-J111F
+    - name: 4. Clone Kernel Stock SM-J111F (Untuk Defconfig)
       run: |
-        # Mengambil file defconfig pengantin langsung tanpa clone seluruh repositori stock untuk menghemat waktu
-        mkdir -p stock-config
-        curl -sL https://githubusercontent.com{{ env.STOCK_DEFCONFIG }} -o stock-config/${{ env.STOCK_DEFCONFIG }}
+        git clone --depth=1 https://github.com/Flopster101/android_kernel_samsung_j1acevelte kernel-stock
 
-    - name: 5. Auto-Patch & Merge Defconfig
+    - name: 5. Download Android Image Kitchen (AIK)
       run: |
-        cd kernel-source
-        # Fix error kompilasi pada compiler baru
+        git clone https://github.com/ndrancs/AIK-Linux-x32-x64 AIK
+
+    - name: 6. Download Base Boot.img LineageOS 14.1
+      run: |
+        mkdir base-boot
+        cd base-boot
+        # Mengunduh boot.img dari repository build Anda
+        curl -L -o boot.img https://github.com || curl -L -o boot.img https://github.com
+
+    - name: 7. Sinkronisasi & Modifikasi Defconfig Otomatis
+      run: |
+        # Menyalin defconfig dari kernel stock ke kernel LineageOS
+        cp kernel-stock/arch/arm/configs/j1acevelte_defconfig kernel-los/arch/arm/configs/j1acevelte_los_defconfig
+        
+        cd kernel-los
+        # Fix Error Kode Makefile Bawaan GCC Lama
         if [ -f kernel/timeconst.pl ]; then sed -i 's/if (!defined(@val))/if (!@val)/g' kernel/timeconst.pl; fi
         if [ -f scripts/dtc/dtc-lexer.lex.c_shipped ]; then sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped; fi
-        find . -type f ( -name "Makefile" -o -name "Kbuild" ) -exec sed -i 's/-Werror//g' {} +
+        find . -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
         find . -type f -name "Makefile" -exec sed -i 's/-implicit-function-declaration/-Wno-implicit-function-declaration/g' {} +
         
-        # Proses otomatisasi defconfig pengantin:
-        # Menyalin konfigurasi hardware dasar J1 Ace ke target defconfig LineageOS 14.1
-        cp ../stock-config/${{ env.STOCK_DEFCONFIG }} arch/arm/configs/${{ env.LOS_DEFCONFIG }}
-        
-        # Suntik paksa fitur keamanan permissive & nonaktifkan proteksi Samsung agar LineageOS bisa boot
-        echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> arch/arm/configs/${{ env.LOS_DEFCONFIG }}
-        echo "CONFIG_SECURITY_SELINUX_AVC_STATS=y" >> arch/arm/configs/${{ env.LOS_DEFCONFIG }}
-        sed -i 's/CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=n/CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=y/g' arch/arm/configs/${{ env.LOS_DEFCONFIG }} || echo "CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=y" >> arch/arm/configs/${{ env.LOS_DEFCONFIG }}
-        sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' arch/arm/configs/${{ env.LOS_DEFCONFIG }}
-        sed -i 's/CONFIG_SEC_RESTRICT_ROOT=y/# CONFIG_SEC_RESTRICT_ROOT is not set/g' arch/arm/configs/${{ env.LOS_DEFCONFIG }}
-        sed -i 's/CONFIG_KNOX_KAP=y/# CONFIG_KNOX_KAP is not set/g' arch/arm/configs/${{ env.LOS_DEFCONFIG }}
+        # Injeksi optimasi LineageOS 14.1 & Bypass Security Samsung ke dalam defconfig baru
+        TARGET_DEFCONFIG="arch/arm/configs/j1acevelte_los_defconfig"
+        echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> $TARGET_DEFCONFIG
+        echo "CONFIG_SECURITY_SELINUX_AVC_STATS=y" >> $TARGET_DEFCONFIG
+        sed -i 's/CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=n/CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=y/g' $TARGET_DEFCONFIG || echo "CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=y" >> $TARGET_DEFCONFIG
+        sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/g' $TARGET_DEFCONFIG
+        sed -i 's/CONFIG_SEC_RESTRICT_ROOT=y/# CONFIG_SEC_RESTRICT_ROOT is not set/g' $TARGET_DEFCONFIG
+        sed -i 's/CONFIG_KNOX_KAP=y/# CONFIG_KNOX_KAP is not set/g' $TARGET_DEFCONFIG
 
-    - name: 6. Compile Kernel
+    - name: 8. Compile Kernel LineageOS
       run: |
-        cd kernel-source
+        cd kernel-los
         export CROSS_COMPILE=$GITHUB_WORKSPACE/toolchain/bin/arm-linux-androideabi-
         export ARCH=arm
         export SUBARCH=arm
         export KBUILD_BUILD_USER="Icsriyand"
         export KBUILD_BUILD_HOST="GitHub-Actions"
-        make ${{ env.LOS_DEFCONFIG }}
+        
+        make j1acevelte_los_defconfig
         make -j$(nproc)
 
-    - name: 7. Download AIK & Raw Boot.img
+    - name: 9. Repack Boot.img dengan AIK
       run: |
-        # Download Android Image Kitchen (AIK)
-        git clone https://github.com/ndrancs/AIK-Linux-x32-x64 AIK
+        # Salin boot.img dasar ke folder AIK
+        cp base-boot/boot.img AIK/
         cd AIK
-        chmod +x unpackimg.sh repackimg.sh bin/magiskboot bin/mkbootimg bin/unpackbootimg
         
-        # Download boot.img LineageOS mentah milik Anda
-        curl -sL https://githubusercontent.com -o boot.img || curl -sL https://githubusercontent.com -o boot.img
-
-    - name: 8. Repack Boot.img dengan Kernel Baru
-      run: |
-        cd AIK
-        # Bongkar boot.img bawaan ROM LineageOS 14.1
+        # Bongkar boot.img asli
+        chmod +x unpackimg.sh repackimg.sh bin/magiskboot
         ./unpackimg.sh boot.img
         
-        # Ganti kernel lama di dalam ramdisk dengan zImage baru hasil kompilasi
-        if [ -f ../kernel-source/arch/arm/boot/zImage ]; then
-          cp ../kernel-source/arch/arm/boot/zImage split_img/boot.img-zImage
-        else
-          echo "Error: zImage tidak ditemukan! Kompilasi kernel gagal." && exit 1
-        fi
+        # Ganti zImage bawaan dengan zImage hasil compile baru
+        cp ../kernel-los/arch/arm/boot/zImage split_img/boot.img-zImage
         
-        # Ganti DTB jika mesin sharkls membutuhkannya (opsional)
-        if [ -f ../kernel-source/arch/arm/boot/dt.img ]; then
-          cp ../kernel-source/arch/arm/boot/dt.img split_img/boot.img-dtb
-        fi
-        
-        # Bungkus kembali menjadi boot.img final
+        # Rakit kembali menjadi boot.img baru
         ./repackimg.sh
+        
+        # Pindahkan dan ganti nama hasil akhir
         mv image-new.img ../boot-lineage14.1-sm-j111f.img
 
-    - name: 9. Upload Final Boot.img to Releases
+    - name: 10. Upload Hasil Akhir ke GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: LOS14.1-J111F-${{ github.run_id }}
-        name: Boot Image LineageOS 14.1 SM-J111F
+        tag_name: LOS-14.1-Kernel-${{ github.run_id }}
+        name: Boot.img LineageOS 14.1 J1 Ace (SM-J111F)
         body: |
-          **Automated Build Successful**
-          - Target Device: Samsung Galaxy J1 Ace Neo (SM-J111F)
-          - Base Kernel: LineageOS 14.1 (Sharkls)
-          - Config Used: Automated `j1acevelte_defconfig` merge
-          - Status: SELinux Permissive & Knox Disabled
+          Hasil kompilasi otomatis Boot Image LineageOS 14.1 untuk Samsung Galaxy J1 Ace (SM-J111F).
+          - Base Kernel: LineageOS 14.1 Sharkls Source
+          - Config: j1acevelte_defconfig (Stock J111F)
+          - Status: Permissive & Samsung Security Disabled
         files: boot-lineage14.1-sm-j111f.img
