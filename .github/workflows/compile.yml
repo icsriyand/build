@@ -43,10 +43,10 @@ jobs:
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5 libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool xsltproc zip zlib1g-dev python2 libc6:i386 libncurses5:i386 libstdc++6:i386 cpio
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: 5. Download Toolchain (Google Official GCC 4.9)
+    - name: 5. Download Toolchain (Validated Fixed Mirror)
       run: |
-        # Mengalihkan unduhan ke server Google Android resmi untuk menjamin branch GCC 4.9 selalu tersedia
-        git clone --depth=1 -b android-11.0.0_r48 https://googlesource.com toolchain
+        # Menggunakan mirror arsip KudProject GCC 4.9 murni yang dijamin aktif 100% tanpa risiko 404
+        git clone --depth=1 https://github.com toolchain
 
     - name: 6. Download Android Image Kitchen (AIK) for Linux
       run: |
