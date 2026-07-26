@@ -1,7 +1,7 @@
 name: Compile & Patch LineageOS 14.1 Kernel for J111F
 
 on:
-  workflow_dispatch: # Memicu pengerjaan secara manual dari tab Actions di GitHub
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 1. Checkout Your Repository (Contains Target boot.img)
+    - name: 1. Checkout Main Repository
       uses: actions/checkout@v4
       with:
         path: main_repo
@@ -29,48 +29,41 @@ jobs:
         ref: cm-14.1
         path: kernel-source
 
-    - name: 3. Checkout Stock 5.1.1 Kernel Source (For Driver/DTS References)
+    - name: 3. Checkout Stock 5.1.1 Kernel Source
       uses: actions/checkout@v4
       with:
         repository: Flopster101/android_kernel_samsung_j1acevelte
         ref: android-5.1.1
         path: stock_ref
 
-    - name: 4. Install Dependencies
+    - name: 4. Install Build Dependencies
       run: |
         sudo dpkg --add-architecture i386
         sudo apt-get update
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5 libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool xsltproc zip zlib1g-dev python2 libc6:i386 libncurses5:i386 libstdc++6:i386 cpio
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: 5. Download Toolchain (Google Official Repo Locked Branch)
+    - name: 5. Download Toolchain (Google Official Source)
       run: |
-        # Menggunakan perintah git clone murni pilihan Anda dengan mengunci cabang 'pie-gsi' 
-        # Cabang ini adalah tempat terakhir Google menyimpan biner GCC 4.9 secara utuh sebelum dihapus dari cabang main
-        git clone -b pie-gsi --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain
+        git clone https://googlesource.com toolchain
 
-    - name: 6. Download Android Image Kitchen (AIK Ndrancs Reference)
+    - name: 6. Download Android Image Kitchen (ndrancs Reference)
       run: |
         git clone https://github.com AIK --depth=1
         chmod -R +x AIK/*.sh AIK/bin/
 
     - name: 7. Porting Config, DTS, and Apply Patches
       run: |
-        # Menyalin konfigurasi defconfig bawaan J111F ke kernel CM-14.1
         cp stock_ref/arch/arm/configs/j1acevelte_defconfig kernel-source/arch/arm/configs/
-        
-        # Menyalin file konfigurasi DTS/DTSI spesifik J111F ke kernel CM-14.1
         cp stock_ref/arch/arm/boot/dts/j1acevelte* kernel-source/arch/arm/boot/dts/ || true
         cp stock_ref/arch/arm/boot/dts/sc9830* kernel-source/arch/arm/boot/dts/ || true
 
         cd kernel-source
-        # Menjalankan logika perbaikan otomatis (Patching) bawaan dari skrip Anda
         if [ -f kernel/timeconst.pl ]; then sed -i 's/if (!defined(@val))/if (!@val)/g' kernel/timeconst.pl; fi
         if [ -f scripts/dtc/dtc-lexer.lex.c_shipped ]; then sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped; fi
         find . -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
         find . -type f -name "Makefile" -exec sed -i 's/-implicit-function-declaration/-Wno-implicit-function-declaration/g' {} +
         
-        # Mengatur Mode Permissive & Mematikan Pengaman Samsung Knox
         echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> arch/arm/configs/$DEFCONFIG_NAME
         echo "CONFIG_SECURITY_SELINUX_AVC_STATS=y" >> arch/arm/configs/$DEFCONFIG_NAME
         sed -i 's/CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=n/CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=y/g' arch/arm/configs/$DEFCONFIG_NAME || echo "CONFIG_SECURITY_SELINUX_ENFORCE_PERMISSIVE=y" >> arch/arm/configs/$DEFCONFIG_NAME
@@ -80,9 +73,17 @@ jobs:
 
     - name: 8. Compile Kernel Source
       run: |
+        # Menggunakan logika pencarian biner dinamis agar mendeteksi struktur folder GCC Google Source secara akurat
+        REAL_GCC_PATH=$(find $GITHUB_WORKSPACE/toolchain -name "arm-linux-androideabi-gcc" | head -n 1)
+        if [ -z "$REAL_GCC_PATH" ]; then
+          echo "Error: Biner arm-linux-androideabi-gcc tidak ditemukan!"
+          exit 1
+        fi
+        TOOLCHAIN_PREFIX=${REAL_GCC_PATH%gcc}
+        echo "Toolchain terdeteksi pada: $TOOLCHAIN_PREFIX"
+        
         cd kernel-source
-        # Mengarahkan langsung ke jalur eksekusi biner arm-linux-androideabi-gcc yang sudah terunduh di folder toolchain
-        export CROSS_COMPILE=$GITHUB_WORKSPACE/toolchain/bin/arm-linux-androideabi-
+        export CROSS_COMPILE=$TOOLCHAIN_PREFIX
         export ARCH=arm
         export SUBARCH=arm
         export KBUILD_BUILD_USER="Icsriyand"
@@ -93,36 +94,31 @@ jobs:
     - name: 9. Combine Kernel with Device Tree Blob (DTB)
       run: |
         cd kernel-source
-        # Penggabungan DTB ke zImage untuk arsitektur bootloader Samsung Spreadtrum
         if [ -f arch/arm/boot/dts/j1acevelte.dtb ]; then
           cat arch/arm/boot/zImage arch/arm/boot/dts/j1acevelte.dtb > arch/arm/boot/zImage-dtb
-          echo "DTB Tergabung!"
         else
           cat arch/arm/boot/zImage arch/arm/boot/dts/sc9830*.dtb > arch/arm/boot/zImage-dtb || cp arch/arm/boot/zImage arch/arm/boot/zImage-dtb
-          echo "Menggunakan Multi-DTB / Fallback!"
         fi
 
     - name: 10. Unpack, Patch, and Repack Boot.img via AIK
       run: |
         if [ ! -f main_repo/boot.img ]; then
-          echo "Error: Berkas boot.img target tidak ditemukan di root repositori Anda!"
+          echo "Error: boot.img target tidak ditemukan di root repositori!"
           exit 1
         fi
         
-        # Pindahkan berkas boot.img bawaan ROM Anda ke lingkungan AIK
         cp main_repo/boot.img AIK/
         cd AIK
         
-        # Bongkar berkas boot.img asli menggunakan skrip penanganan x64 milik ndrancs
+        # Eksekusi skrip pembongkar x64 murni milik ndrancs
         ./unpackimg_x64.sh boot.img
         
-        # Suntik kernel kustom zImage-dtb yang baru selesai dibuat
+        # Substitusi zImage-dtb baru ke folder split_img
         cp ../kernel-source/arch/arm/boot/zImage-dtb split_img/boot.img-zImage
         
-        # Bungkus ulang menjadi boot.img kustom yang baru menggunakan skrip x64
+        # Eksekusi skrip pengemas x64 murni milik ndrancs
         ./repackimg_x64.sh
         
-        # Ambil file keluaran final
         cp image-new.img ../boot_lineage14.1_j111f.img
 
     - name: 11. Upload to Releases
@@ -130,5 +126,5 @@ jobs:
       with:
         tag_name: Boot-CM14.1-${{ github.run_id }}
         name: Boot Image LineageOS 14.1 J111F
-        body: "Berkas boot.img kustom siap pakai untuk SM-J111F (LineageOS 14.1). Diperkuat dengan kernel kustom berbasis SharkLS, status SELinux Permissive, serta proteksi Knox dinonaktifkan."
+        body: "Automated Build: boot.img kustom untuk SM-J111F (LineageOS 14.1). Base kernel SharkLS, SELinux Permissive, Knox Disabled."
         files: boot_lineage14.1_j111f.img
