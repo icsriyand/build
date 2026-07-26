@@ -24,25 +24,25 @@ jobs:
       run: |
         sudo dpkg --add-architecture i386
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5 libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool xsltproc zip zlib1g-dev python2 libc6:i386 libncurses5:i386 libstdc++6:i386 file
+        sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5 libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool xsltproc zip zlib1g-dev python2 libc6:i386 libncurses5:i386 libstdc++6:i386 filelibssl-dev
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
     - name: 2. Clone LineageOS 14.1 Kernel Source
       run: |
-        git clone --depth=1 -b cm-14.1 https://github.com/djeman/android_kernel_samsung_sharkls kernel-source
+        git clone --depth=1 -b cm-14.1 https://github.com kernel-source
 
     - name: 3. Clone Stock Kernel Source (Untuk Ambil Defconfig)
       run: |
-        git clone --depth=1 https://github.com/Flopster101/android_kernel_samsung_j1acevelte stock-kernel
+        git clone --depth=1 https://github.com stock-kernel
 
-    - name: 4. Clone Toolchain GCC 4.9
+    - name: 4. Clone Toolchain GCC 4.9 (LineageOS Optimized)
       run: |
-        git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain
+        git clone --depth=1 -b cm-14.1 https://github.com toolchain
 
     - name: 5. Clone Base Repo (Untuk Ambil Boot.img Lama & AIK)
       run: |
-        git clone https://github.com/icsriyand/build base-repo
-        git clone https://github.com/ndrancs/AIK-Linux-x32-x64 AIK
+        git clone https://github.com base-repo
+        git clone https://github.com AIK
 
     - name: 6. Deteksi dan Salin Defconfig Otomatis
       run: |
@@ -96,7 +96,7 @@ jobs:
         OLD_BOOT=$(find base-repo -name "boot.img" | head -n 1)
         
         if [ -z "$OLD_BOOT" ]; then
-          echo "Error: boot.img tidak ditemukan di repo https://github.com/icsriyand/build"
+          echo "Error: boot.img tidak ditemukan di repo https://github.com"
           exit 1
         fi
         
@@ -104,8 +104,11 @@ jobs:
         cp -v $OLD_BOOT AIK/boot.img
         cd AIK
         
+        # Berikan izin eksekusi script AIK
+        chmod +x unpackimg.sh repackimg.sh
+        chmod -R +x bin/
+        
         # Bongkar boot.img lama
-        chmod +x unpackimg.sh repackimg.sh bin/magiskboot bin/androidbootimg
         ./unpackimg.sh boot.img
         
         # Ganti zImage bawaan lama dengan zImage LineageOS yang baru dicompile
