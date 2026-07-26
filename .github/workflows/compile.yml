@@ -29,15 +29,15 @@ jobs:
 
     - name: 2. Clone LineageOS 14.1 Kernel Source
       run: |
-        git clone --depth=1 -b cm-14.1 https://github.com kernel-source
+        git clone --depth=1 -b cm-14.1 https://github.com/djeman/android_kernel_samsung_sharkls kernel-source
 
     - name: 3. Clone Stock Kernel Source (Untuk Ambil Defconfig)
       run: |
         git clone --depth=1 https://github.com stock-kernel
 
-    - name: 4. Clone Toolchain GCC 4.9 (LineageOS Optimized)
+    - name: 4. Clone Toolchain GCC 4.9 (Google AOSP Source)
       run: |
-        git clone --depth=1 -b cm-14.1 https://github.com toolchain
+        git clone --depth=1 https://googlesource.com toolchain
 
     - name: 5. Clone Base Repo (Untuk Ambil Boot.img Lama & AIK)
       run: |
