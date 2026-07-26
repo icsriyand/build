@@ -45,12 +45,12 @@ jobs:
 
     - name: 5. Download Toolchain (Google Source Verified Branch)
       run: |
-        # Memaksa git mengunduh tag android-11.0.0_r48 dari Google Source di mana compiler GCC 4.9 masih utuh dan belum dihapus
-        git clone --depth=1 -b android-11.0.0_r48 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain
+        git clone --depth=1 -b android-11.0.0_r48 https://googlesource.com toolchain
 
-    - name: 6. Download Android Image Kitchen (AIK) for Linux
+    - name: 6. Download Android Image Kitchen (AIK Ndrancs Version)
       run: |
-        git clone https://github.com AIK --depth=1
+        # Menggunakan repositori ndrancs yang terbukti aman dan kompatibel untuk lingkungan x64
+        git clone https://github.com/ndrancs/AIK-Linux-x32-x64 AIK --depth=1
         chmod -R +x AIK/*.sh AIK/bin/
 
     - name: 7. Porting Config, DTS, and Apply Patches
@@ -111,14 +111,14 @@ jobs:
         cp main_repo/boot.img AIK/
         cd AIK
         
-        # Bongkar berkas boot.img asli
-        ./unpackimg.sh boot.img
+        # Bongkar berkas boot.img asli menggunakan skrip penanganan x64 milik ndrancs
+        ./unpackimg_x64.sh boot.img
         
         # Suntik kernel kustom zImage-dtb yang baru selesai dibuat
         cp ../kernel-source/arch/arm/boot/zImage-dtb split_img/boot.img-zImage
         
-        # Bungkus ulang menjadi boot.img kustom yang baru
-        ./repackimg.sh
+        # Bungkus ulang menjadi boot.img kustom yang baru menggunakan skrip x64
+        ./repackimg_x64.sh
         
         # Ambil file keluaran final
         cp image-new.img ../boot_lineage14.1_j111f.img
