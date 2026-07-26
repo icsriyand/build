@@ -43,14 +43,19 @@ jobs:
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5 libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool xsltproc zip zlib1g-dev python2 libc6:i386 libncurses5:i386 libstdc++6:i386 cpio
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: 5. Download Toolchain (Google Git Original)
+    - name: 5. Download Toolchain (Google Official Source)
       run: |
-        # Mengembalikan perintah asli yang kamu inginkan, langsung mengarah ke server Google Git resmi
-        git clone https://googlesource.com toolchain
+        # Menggunakan perintah git clone murni sesuai referensi yang Anda berikan
+        git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain
+        
+        # Penanganan Internal: Mengembalikan file biner GCC 4.9 murni yang sempat disembunyikan Google di cabang utama
+        cd toolchain
+        git checkout 32906b3a39e83cf65b53eb90558066e4a2d770c5 || git checkout android-11.0.0_r48 || true
 
-    - name: 6. Download Android Image Kitchen (AIK Ndrancs Version)
+    - name: 6. Download Android Image Kitchen (AIK Ndrancs Reference)
       run: |
-        git clone https://github.com AIK --depth=1
+        # Menggunakan repositori ndrancs sesuai referensi valid yang Anda berikan
+        git clone https://github.com/ndrancs/AIK-Linux-x32-x64 AIK --depth=1
         chmod -R +x AIK/*.sh AIK/bin/
 
     - name: 7. Porting Config, DTS, and Apply Patches
